@@ -1,3 +1,5 @@
+// linegetter contains LineGetter interface which allows efficient reading
+// of random lines from huge files containing lot of lines, typically log files.
 package linegetter
 
 import (
