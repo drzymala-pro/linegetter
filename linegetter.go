@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	read_chunk_sz := 16383 // 0x3FFF
-	MaxLineLength := read_chunk_sz
+	read_chunk_sz int64 = 16383 // 0x3FFF
+	MaxLineLength int64 = read_chunk_sz
 )
 
 var (
@@ -20,24 +20,25 @@ var (
 // LineGetter implements random access to lines from io.ReadSeeker object.
 // Lines are separated with ASCII line feed character, 0x0A in hex.
 type LineGetter struct {
-	total_line_count uint64
+	total_line_count int64
 	reader_seeker    io.ReadSeeker
+	line_index       []int64
 }
 
 // NewLineGetter returns a new LineGetter.
 // Upon creation of LineGetter, the whole ReadSeeker is scanned.
-// If the io.ReadSeeker is nil, ErrInvalidArgument error is returned.
-func NewLineGetter(rs *io.ReadSeeker) *LineGetter {
+// If the io.ReadSeeker is nil, nil is returned.
+func NewLineGetter(rs io.ReadSeeker) *LineGetter {
 	if rs == nil {
-		return nil, ErrInvalidArgument
+		return nil
 	}
 	lg := LineGetter{ total_line_count: 0, reader_seeker: rs }
 	lg.reindex()
-	return &lg, nil
+	return &lg
 }
 
 // GetLineCount returns the number of lines available in the LineGetter.
-func (lg *LineGetter) GetLineCount() uint64 {
+func (lg *LineGetter) GetLineCount() int64 {
 	return lg.total_line_count
 }
 
@@ -47,14 +48,14 @@ func (lg *LineGetter) GetLineCount() uint64 {
 //   the resulting string does not contain the full expected length.
 // * If the line length exceeds MaxLineLength, ErrLineTruncated is returned
 //   and the resulting string is truncated to MaxLineLength size.
-func (lg *LineGetter) GetLine(ln uint64) (string, error) {
+func (lg *LineGetter) GetLine(ln int64) (string, error) {
 	if ln >= lg.total_line_count {
 		return "", ErrInvalidArgument
 	}
-	final_len := 0
-	truncated := false
-	start_idx := lg.li[ln]
-	end_index := lg.li[ln+1]
+	var final_len int64
+	var truncated bool  = false
+	var start_idx int64 = lg.line_index[ln]
+	var end_index int64 = lg.line_index[ln+1]
 	if end_index - start_idx > MaxLineLength {
 		truncated = true
 		final_len = MaxLineLength
@@ -62,24 +63,24 @@ func (lg *LineGetter) GetLine(ln uint64) (string, error) {
 	} else {
 		final_len = end_index - start_idx
 	}
-	buffer = make([]byte, final_len)
+	buffer := make([]byte, final_len)
 	_, err := lg.reader_seeker.Seek(start_idx, io.SeekStart)
 	if err != nil {
 		return "", err
 	}
-	n, err = io.ReadFull(lg.reader_seeker, buffer)
+	n, err := io.ReadFull(lg.reader_seeker, buffer)
 	if err != nil {
-		return buffer[:n], io.ErrUnexpectedEOF
+		return string(buffer[:n]), io.ErrUnexpectedEOF
 	}
 	if truncated {
-		return buffer, ErrLineTruncated
+		return string(buffer), ErrLineTruncated
 	}
-	return buffer, nil
+	return string(buffer), nil
 }
 
 
 func (lg *LineGetter) reindex() {
-	lg.lineCount = 0
+	lg.total_line_count = 0
 	for {
 
 	}
