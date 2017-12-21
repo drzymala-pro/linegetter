@@ -11,18 +11,15 @@ var mock io.ReadSeeker
 
 func TestInvalidParameter(t *testing.T) {
 	mock = nil
-	ilg, err := NewLineGetter(mock)
+	ilg := NewLineGetter(mock)
 	if ilg != nil {
 		t.Fatalf("Creating LineGetter with invalid argument does not return nil.")
-	}
-	if err == nil {
-		t.Fatalf("Creating LineGetter with invalid argument does not return error.")
 	}
 }
 
 func TestEmptyReader(t *testing.T) {
 	mock = bytes.NewReader([]byte(""))
-	elg, _ := NewLineGetter(mock)
+	elg := NewLineGetter(mock)
 	c := elg.GetLineCount()
 	if c != 0 {
 		t.Fatalf("Empty LineGetter returns non zero line count: %v", c)
@@ -31,15 +28,15 @@ func TestEmptyReader(t *testing.T) {
 	if line != "" {
 		t.Fatalf("Empty LineGetter has returned a non empty line: %v", line)
 	}
-	if err == nil {
-		t.Fatalf("Empty LineGetter has not returned error.")
+	if err != io.EOF {
+		t.Fatalf("Empty LineGetter has not returned EOF error.")
 	}
 }
 
 
 func TestSingleByteReader(t *testing.T) {
 	mock = bytes.NewReader([]byte("G"))
-	lg, _ := NewLineGetter(mock)
+	lg := NewLineGetter(mock)
 	c := lg.GetLineCount()
 	if c != 1 {
 		t.Fatalf("LineGetter returned wrong number of lines: %v", c)

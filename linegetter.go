@@ -81,7 +81,4 @@ func (lg *LineGetter) GetLine(ln int64) (string, error) {
 
 func (lg *LineGetter) reindex() {
 	lg.total_line_count = 0
-	for {
-
-	}
 }
