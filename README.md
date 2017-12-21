@@ -4,35 +4,54 @@ Package containing methods for fast random access reads from huge files, typical
 ## Interfaces
 
 ### LineGetter
-LineGetter is an interface for retrieving concrete line from a file.
-Lines can be accessed in random order. The delimiter for line separation
-is the newline symbol. Newline symbol is platform specific.
+LineGetter implements random access to lines from io.ReadSeeker object.
+Lines are separated with ASCII line feed character, 0x0A in hex.
 ```go
-type LineGetter interface {
-    GetLineCount() uint64
-    GetLine(line uint64) (string, error)
-}
+type LineGetter struct {...}
 ```
 
 ## Functions
 
 ### NewLineGetter
-NewLineGetter creates a LineGetter from an io.ReadSeeker.
-Whole ReadSeeker is scanned and indexed for GetLine speed.
+NewLineGetter returns a new LineGetter.
+Upon creation of LineGetter, the whole ReadSeeker is scanned.
+If the io.ReadSeeker is nil, nil is returned.
 ```go
-func NewLineGetter(rs io.ReadSeeker) (*lineGetter, error) {...}
+func NewLineGetter(rs io.ReadSeeker) *LineGetter {...}
 ```
 
 ### GetLineCount
 GetLineCount returns the number of lines available in the LineGetter.
-Lines are split by newline sybmols. New line sybol is platform dependent.
 ```go
-func (lg *lineGetter) GetLineCount() uint64 {...}
+func (lg *LineGetter) GetLineCount() int64 {...}
 ```
 
 ### GetLine
-GetLine returns the given line without the trailing newline symbols.
-If the line number is not in range then error is returned.
+GetLine returns the n-th line from the LineGetter.
+ * If the line number is out of range, ErrInvalidArgument is returned.
+ * If some error happens during reading, the error is returned and
+   the resulting string does not contain the full expected length.
+ * If the line length exceeds MaxLineLength, ErrLineTruncated is returned
+   and the resulting string is truncated to MaxLineLength size.
 ```go
-func (lg *lineGetter) GetLine(line uint64) (string, error) {...}
+func (lg *LineGetter) GetLine(ln int64) (string, error) {...}
 ```
+
+## Errors
+
+```go
+var (
+    ErrInvalidArgument = errors.New("invalid argument")
+    ErrLineTruncated   = errors.New("line truncated")
+)
+```
+
+## Constants
+
+```go
+const (
+    read_chunk_sz int64 = 16383 // 0x3FFF
+    MaxLineLength int64 = read_chunk_sz
+)
+```
+
