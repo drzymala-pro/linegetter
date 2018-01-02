@@ -2,28 +2,32 @@
 // from huge files containing lot of lines, typically log files.
 package linegetter
 
+
 import (
 	"io"
-	"bufio"
 	"errors"
 )
+
 
 const (
 	read_chunk_sz int64 = 16383 // 0x3FFF
 	MaxLineLength int64 = read_chunk_sz
 )
 
+
 var (
 	ErrInvalidArgument = errors.New("invalid argument")
 	ErrLineTruncated   = errors.New("line truncated")
 )
 
+
 // LineGetter implements random access to lines from io.ReadSeeker object.
 type LineGetter struct {
-	total_line_count int64
-	reader_seeker    io.ReadSeeker
-	line_index       []int64
+	read_skr io.ReadSeeker
+	line_cnt int64
+	line_pos []int64
 }
+
 
 // NewLineGetter returns a new LineGetter.
 // If the io.ReadSeeker is nil, ErrInvalidArgument is returned.
@@ -34,7 +38,7 @@ func NewLineGetter(rs io.ReadSeeker) (*LineGetter, error) {
 	if rs == nil {
 		return nil, ErrInvalidArgument
 	}
-	lg := LineGetter{ total_line_count: 0, reader_seeker: rs }
+	lg := LineGetter{ line_cnt: 0, read_skr: rs }
 	err := lg.reindex()
 	if err != nil {
 		return nil, err
@@ -42,10 +46,12 @@ func NewLineGetter(rs io.ReadSeeker) (*LineGetter, error) {
 	return &lg, nil
 }
 
+
 // GetLineCount returns the number of lines available in the LineGetter.
 func (lg *LineGetter) GetLineCount() int64 {
-	return lg.total_line_count
+	return lg.line_cnt
 }
+
 
 // GetLine returns the n-th line from the LineGetter.
 // Lines are separated with ASCII line feed character, 0x0A in hex.
@@ -56,13 +62,13 @@ func (lg *LineGetter) GetLineCount() int64 {
 // * If the line length exceeds MaxLineLength, ErrLineTruncated is returned
 //   and the resulting string is truncated to MaxLineLength size.
 func (lg *LineGetter) GetLine(ln int64) (string, error) {
-	if ln >= lg.total_line_count {
+	if ln >= lg.line_cnt {
 		return "", ErrInvalidArgument
 	}
 	var final_len int64
 	var truncated bool  = false
-	var start_idx int64 = lg.line_index[ln]
-	var end_index int64 = lg.line_index[ln+1]
+	var start_idx int64 = lg.line_pos[ln]
+	var end_index int64 = lg.line_pos[ln+1]
 	if end_index - start_idx > MaxLineLength {
 		truncated = true
 		final_len = MaxLineLength
@@ -70,12 +76,12 @@ func (lg *LineGetter) GetLine(ln int64) (string, error) {
 	} else {
 		final_len = end_index - start_idx
 	}
-	_, err := lg.reader_seeker.Seek(start_idx, io.SeekStart)
+	_, err := lg.read_skr.Seek(start_idx, io.SeekStart)
 	if err != nil {
 		return "", err
 	}
 	buffer := make([]byte, final_len)
-	n, err := io.ReadFull(lg.reader_seeker, buffer)
+	n, err := io.ReadFull(lg.read_skr, buffer)
 	if err != nil {
 		return string(buffer[:n]), io.ErrUnexpectedEOF
 	}
@@ -85,105 +91,65 @@ func (lg *LineGetter) GetLine(ln int64) (string, error) {
 	return string(buffer), nil
 }
 
+
 func (lg *LineGetter) reindex() error {
-	var current_position int64 = 0
-	lg.total_line_count = 0
-	// Rewind to the beginning of reader
-	_, err := lg.reader_seeker.Seek(0, io.SeekStart)
-	if err != nil {
+	// Reset the line getter and rewind the reader
+	if err := lg.reset(); err != nil {
 		return err
 	}
-	// Naive approach - read one byte at a time
+	// Naive approach - scan one byte at a time
+	var current_pos int64 = 0
 	for {
-		n, b, e := read_next_byte(lg.reader_seeker)
-		switch {
-		case e != nil:
-			// Got read error
-			return e
-		case n == 0:
-			// Got EOF
-			lg.line_index[lg.total_line_count] = current_position
+		data, err := read_next_byte(lg.read_skr)
+		switch err {
+		case nil:
+			current_pos += 1
+			if data == '\n' {
+				lg.line_cnt += 1
+				lg.line_pos = append(lg.line_pos, current_pos)
+			}
+		case io.EOF:
+			// Scanned the whole thing. Mark the length of the last line.
+			// Add the position of cursor but do not increase line count.
+			lg.line_pos = append(lg.line_pos, current_pos)
 			return nil
 		default:
-			handle_character(lg)
-		}
-	}
-}
-
-
-// Read until given delimiter is found
-func read_until(delimiter byte, reader *Reader) (length int64, last_byte byte, err error) {
-	// Naive approach, read one byte at a time
-	err = nil
-	length = 0
-	last_byte = 0
-	var buffer [1]byte = {0}
-	for {
-		n, err = reader.Read(buffer)
-		switch {
-		case n == 1:
-			length += 1
-		case n == 0 && err == nil:
-			err = io.EOF
-		case err != nil:
-			return length, last_byte, err
-		case buffer[0] == delimiter:
-			return length, last_byte, nil
-		default:
-			last_byte = buffer[0]
-			continue
-		}
-	}
-}
-
-
-
-{
-	b := make([]byte, 1)
-	p := 0
-	for {
-		n, err := lg.reader_seeker.Read(b)
-		switch {
-		case err == io.EOF:
-			/* Finished reading */
-			return nil
-		case err != nil:
-			/* Read error occurred */
-			lg.total_line_count = 0
+			// Unexpected error
 			return err
-		case n == 1:
-			/* Read success, handle the read data */
-			handle_next_byte(lg)
-		default:
-			/* No data, try again */
-			retry_count += 1
-			continue
 		}
 	}
 }
 
-func read_next_byte(reader *io.Reader) (byte, error) {
 
+func (lg *LineGetter) reset() error {
+	lg.line_cnt = 0
+	lg.line_pos = []int64{}
+	if _, err := lg.read_skr.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	return nil
 }
 
-func handle_next_byte(lg *LineGetter) {
-	if lg.total_line_count == 0 {
-	/* We got at least one line, even if it won't end with '\n' */
-	lg.total_line_count += 1
+
+// read_next_byte returns one valid byte or error, but never both.
+func read_next_byte(reader io.Reader) (byte, error) {
+	var p []byte
+	var n int
+	var err error
+	p = make([]byte, 1)
+	for {
+		n, err = reader.Read(p)
+		switch {
+		case n > 0:
+			// If any data available, ignore errors
+			return p[0], nil
+		case err != nil:
+			// If no data but error, return error
+			return 0, err
+		default:
+			// Otherwise try reading again
+			continue
+		}
 	}
-	/* Read success */
-	if b[0] == '\n' {
-		/* We've got a line separator, i.e. new line */
-		lg.total_line_count += 1
-	}
-	switch b[0] {
-	case '\n':
-		break
-	default:
-		/* Got end of line */
-	}
-	read(b[0])
-	/* Increase the cursor index */
-	p += 1
 }
 
