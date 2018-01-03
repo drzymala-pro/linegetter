@@ -6,6 +6,7 @@ package linegetter
 import (
 	"io"
 	"errors"
+	"fmt"
 )
 
 
@@ -41,7 +42,17 @@ func NewLineGetter(rs io.ReadSeeker) (*LineGetter, error) {
 	lg := LineGetter{ line_cnt: 0, read_skr: rs }
 	err := lg.reindex()
 	if err != nil {
+		fmt.Printf("NewLineGetter: reindex returned error :%v\n", err)
 		return nil, err
+	}
+	fmt.Printf("NewLineGetter: number of lines:%v\n", lg.line_cnt)
+	if len(lg.line_pos) > 0 {
+		fmt.Printf("NewLineGetter: dumping indexes:\n")
+		for idx, pos := range lg.line_pos {
+			fmt.Printf("    index %v, pos: %v\n", idx, pos)
+		}
+	} else {
+		fmt.Printf("NewLineGetter: No indexes.\n")
 	}
 	return &lg, nil
 }
@@ -56,33 +67,43 @@ func (lg *LineGetter) GetLineCount() int64 {
 // GetLine returns the n-th line from the LineGetter.
 // Lines are separated with ASCII line feed character, 0x0A in hex.
 // The line separator is not included in the resulting lines.
-// * If the line number is out of range, ErrInvalidArgument is returned.
+// * If the line number is out of range or zero, ErrInvalidArgument is returned.
 // * If some error happens during reading, the error is returned and
 //   the resulting string does not contain the full expected length.
 // * If the line length exceeds MaxLineLength, ErrLineTruncated is returned
 //   and the resulting string is truncated to MaxLineLength size.
 func (lg *LineGetter) GetLine(ln int64) (string, error) {
-	if ln >= lg.line_cnt {
+	if ln > lg.line_cnt || ln == 0 {
 		return "", ErrInvalidArgument
 	}
+	var start_idx int64 = lg.line_pos[ln-1]
+	var end_index int64 = lg.line_pos[ln]
+	return lg.read_string(start_idx, end_index)
+}
+
+
+func (lg *LineGetter) read_string(bgn_idx, end_idx int64) (string, error) {
 	var final_len int64
 	var truncated bool  = false
-	var start_idx int64 = lg.line_pos[ln]
-	var end_index int64 = lg.line_pos[ln+1]
-	if end_index - start_idx > MaxLineLength {
+	if end_idx - bgn_idx > MaxLineLength {
 		truncated = true
 		final_len = MaxLineLength
-		end_index = start_idx + final_len
+		end_idx = bgn_idx + final_len
 	} else {
-		final_len = end_index - start_idx
+		final_len = end_idx - bgn_idx
 	}
-	_, err := lg.read_skr.Seek(start_idx, io.SeekStart)
+	_, err := lg.read_skr.Seek(bgn_idx, io.SeekStart)
 	if err != nil {
+		fmt.Printf("read_string seek error: %v\n", err)
 		return "", err
 	}
 	buffer := make([]byte, final_len)
 	n, err := io.ReadFull(lg.read_skr, buffer)
+	for i:=0; i<n; i++ {
+		fmt.Printf("Character %d: %x\n", i, buffer[i])
+	}
 	if err != nil {
+		fmt.Printf("read_string read error: %v\n", err)
 		return string(buffer[:n]), io.ErrUnexpectedEOF
 	}
 	if truncated {
@@ -103,15 +124,23 @@ func (lg *LineGetter) reindex() error {
 		data, err := read_next_byte(lg.read_skr)
 		switch err {
 		case nil:
-			current_pos += 1
+			// First line is always added
+			if lg.line_cnt == 0 {
+				lg.line_pos = append(lg.line_pos, 0)
+				lg.line_cnt = 1
+			}
+			// Other lines are added only after LF symbol
 			if data == '\n' {
+				lg.line_pos = append(lg.line_pos, current_pos)
 				lg.line_cnt += 1
+			}
+			current_pos += 1
+		case io.EOF:
+			// Scanned the whole thing.
+			if current_pos > 0 {
+				// If got lines, mark end of last line
 				lg.line_pos = append(lg.line_pos, current_pos)
 			}
-		case io.EOF:
-			// Scanned the whole thing. Mark the length of the last line.
-			// Add the position of cursor but do not increase line count.
-			lg.line_pos = append(lg.line_pos, current_pos)
 			return nil
 		default:
 			// Unexpected error

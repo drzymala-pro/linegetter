@@ -64,12 +64,12 @@ func TestSingleByteReader(t *testing.T) {
 	if c != 1 {
 		t.Fatalf("LineGetter returned wrong number of lines: %v", c)
 	}
-	line, err := lg.GetLine(0)
-	if line != "G" {
-		t.Fatalf("LineGetter has returned wrong line: %v", line)
-	}
+	line, err := lg.GetLine(1)
 	if err != nil {
 		t.Fatalf("LineGetter has returned error: %v", err)
+	}
+	if line != "G" {
+		t.Fatalf("LineGetter has returned wrong line: \"%s\"", line)
 	}
 }
 
