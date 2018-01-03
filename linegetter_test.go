@@ -74,3 +74,45 @@ func TestSingleByteReader(t *testing.T) {
 }
 
 
+func TestSingleLineReader(t *testing.T) {
+	text := "aaaaaaaaaaa"
+	mock = bytes.NewReader([]byte(text))
+	lg := make_line_getter_or_die(t, mock)
+	c := lg.GetLineCount()
+	if c != 1 {
+		t.Fatalf("LineGetter returned wrong number of lines: %v", c)
+	}
+	line, err := lg.GetLine(1)
+	if err != nil {
+		t.Fatalf("LineGetter has returned error: %v", err)
+	}
+	if line != text {
+		t.Fatalf("LineGetter has returned wrong line: \"%s\"", line)
+	}
+}
+
+
+func TestDoubleLineReader(t *testing.T) {
+	text := "aaaaaaaaaaa\nbbbbbbbbbb"
+	mock = bytes.NewReader([]byte(text))
+	lg := make_line_getter_or_die(t, mock)
+	c := lg.GetLineCount()
+	if c != 2 {
+		t.Fatalf("LineGetter returned wrong number of lines: %v", c)
+	}
+	line1, err1 := lg.GetLine(1)
+	if err1 != nil {
+		t.Fatalf("LineGetter has returned error: %v", err1)
+	}
+	if line1 != "aaaaaaaaaaa" {
+		t.Fatalf("LineGetter has returned wrong line: \"%s\"", line1)
+	}
+	line2, err2 := lg.GetLine(2)
+	if err2 != nil {
+		t.Fatalf("LineGetter has returned error: %v", err2)
+	}
+	if line2 != "bbbbbbbbbb" {
+		t.Fatalf("LineGetter has returned wrong line: \"%s\"", line2)
+	}
+}
+

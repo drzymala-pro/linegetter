@@ -26,7 +26,13 @@ var (
 type LineGetter struct {
 	read_skr io.ReadSeeker
 	line_cnt int64
-	line_pos []int64
+	line_pos []linePos
+}
+
+
+// linePos holds information about line position in the reader.
+type linePos struct {
+	bgn, end int64
 }
 
 
@@ -39,7 +45,7 @@ func NewLineGetter(rs io.ReadSeeker) (*LineGetter, error) {
 	if rs == nil {
 		return nil, ErrInvalidArgument
 	}
-	lg := LineGetter{ line_cnt: 0, read_skr: rs }
+	lg := LineGetter{ read_skr: rs }
 	err := lg.reindex()
 	if err != nil {
 		fmt.Printf("NewLineGetter: reindex returned error :%v\n", err)
@@ -48,8 +54,8 @@ func NewLineGetter(rs io.ReadSeeker) (*LineGetter, error) {
 	fmt.Printf("NewLineGetter: number of lines:%v\n", lg.line_cnt)
 	if len(lg.line_pos) > 0 {
 		fmt.Printf("NewLineGetter: dumping indexes:\n")
-		for idx, pos := range lg.line_pos {
-			fmt.Printf("    index %v, pos: %v\n", idx, pos)
+		for idx, line := range lg.line_pos {
+			fmt.Printf("    index %v, pos: %v-%v\n", idx, line.bgn, line.end)
 		}
 	} else {
 		fmt.Printf("NewLineGetter: No indexes.\n")
@@ -76,23 +82,22 @@ func (lg *LineGetter) GetLine(ln int64) (string, error) {
 	if ln > lg.line_cnt || ln == 0 {
 		return "", ErrInvalidArgument
 	}
-	var start_idx int64 = lg.line_pos[ln-1]
-	var end_index int64 = lg.line_pos[ln]
-	return lg.read_string(start_idx, end_index)
+	// Lines are zero based, so subtract 1
+	return lg.read_string(lg.line_pos[ln-1])
 }
 
 
-func (lg *LineGetter) read_string(bgn_idx, end_idx int64) (string, error) {
+func (lg *LineGetter) read_string(line_pos linePos) (string, error) {
 	var final_len int64
 	var truncated bool  = false
-	if end_idx - bgn_idx > MaxLineLength {
+	if line_pos.end - line_pos.bgn > MaxLineLength {
 		truncated = true
 		final_len = MaxLineLength
-		end_idx = bgn_idx + final_len
+		line_pos.end = line_pos.bgn + final_len
 	} else {
-		final_len = end_idx - bgn_idx
+		final_len = line_pos.end - line_pos.bgn
 	}
-	_, err := lg.read_skr.Seek(bgn_idx, io.SeekStart)
+	_, err := lg.read_skr.Seek(line_pos.bgn, io.SeekStart)
 	if err != nil {
 		fmt.Printf("read_string seek error: %v\n", err)
 		return "", err
@@ -119,27 +124,24 @@ func (lg *LineGetter) reindex() error {
 		return err
 	}
 	// Naive approach - scan one byte at a time
-	var current_pos int64 = 0
+	var current_line linePos = linePos{0,0}
 	for {
 		data, err := read_next_byte(lg.read_skr)
 		switch err {
 		case nil:
-			// First line is always added
-			if lg.line_cnt == 0 {
-				lg.line_pos = append(lg.line_pos, 0)
-				lg.line_cnt = 1
-			}
-			// Other lines are added only after LF symbol
 			if data == '\n' {
-				lg.line_pos = append(lg.line_pos, current_pos)
+				lg.line_pos = append(lg.line_pos, current_line)
 				lg.line_cnt += 1
+				// Start next line
+				current_line.bgn = current_line.end+1
 			}
-			current_pos += 1
+			current_line.end += 1
 		case io.EOF:
 			// Scanned the whole thing.
-			if current_pos > 0 {
-				// If got lines, mark end of last line
-				lg.line_pos = append(lg.line_pos, current_pos)
+			// Add the last line only if there is at least one
+			if current_line.end > 0 {
+				lg.line_pos = append(lg.line_pos, current_line)
+				lg.line_cnt += 1
 			}
 			return nil
 		default:
@@ -152,7 +154,7 @@ func (lg *LineGetter) reindex() error {
 
 func (lg *LineGetter) reset() error {
 	lg.line_cnt = 0
-	lg.line_pos = []int64{}
+	lg.line_pos = []linePos{}
 	if _, err := lg.read_skr.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
