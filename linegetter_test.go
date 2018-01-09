@@ -6,23 +6,37 @@ import (
 	"io"
 )
 
-var mock io.ReadSeeker
 
-
-func make_line_getter_or_die(t *testing.T, rs io.ReadSeeker) *LineGetter {
-	lg, err := NewLineGetter(rs)
-	if err != nil {
-		t.Fatalf("Creating LineGetter returned error.")
-	}
-	if lg == nil {
-		t.Fatalf("Creating LineGetter returned nil.")
-	}
-	return lg
+var linegetter_tests = []struct {
+	idx int      // Index to show in error logs
+	inp string   // input buffer in the form of string
+	exp []string // expected lines as strings
+}{
+	{0,  "",      []string{""}},
+	{1,  " ",     []string{" "}},
+	{2,  "   ",   []string{"   "}},
+	{3,  "a",     []string{"a"}},
+	{4,  "abc",   []string{"abc"}},
+	{5,  "\n",    []string{"", ""}},
+	{6,  "abc\n", []string{"abc", ""}},
+	{7,  "\nabc", []string{"", "abc"}},
+	{8,  "\n\nabc", []string{"", "", "abc"}},
+	{9,  "abc\n\n", []string{"abc", "", ""}},
+	{10, "\n\nabc  \n\n", []string{"", "", "abc  ", "", ""}},
+	{11, "\n\n  abc\n\n", []string{"", "", "  abc", "", ""}},
+	{12, "abc\ndef\nghi",       []string{"abc", "def", "ghi"}},
+	{13, "abc\ndef\nghi\n",     []string{"abc", "def", "ghi", ""}},
+	{14, "abc\ndef\nghi\n\n\n", []string{"abc", "def", "ghi", "", "", ""}},
+	{15, "abc\n\ndef\n\nghi",   []string{"abc", "", "def", "", "ghi"}},
+	{16, "\nabc\ndef\nghi",     []string{"", "abc", "def", "ghi"}},
+	{17, "\nabc\ndef\nghi\n",   []string{"", "abc", "def", "ghi", ""}},
+	{18, "\nabc\n \ndef\nghi\n",   []string{"", "abc", " ", "def", "ghi", ""}},
+	{19, "abc\ndef\nghi\n\n \n\n", []string{"abc", "def", "ghi", "", " ", "", ""}},
 }
 
 
 func TestInvalidParameter(t *testing.T) {
-	mock = nil
+	var mock io.ReadSeeker = nil
 	ilg, err := NewLineGetter(mock)
 	if err == nil {
 		t.Fatalf("Creating LineGetter with invalid argument does not return error.")
@@ -32,87 +46,35 @@ func TestInvalidParameter(t *testing.T) {
 	}
 }
 
-type emptyReaderSeeker struct {}
-func (r *emptyReaderSeeker) Read(p []byte) (n int, err error) {
-	return 0, io.EOF
-}
-func (r *emptyReaderSeeker) Seek(offset int64, whence int) (int64, error) {
-	return 0, nil
-}
 
-func TestEmptyReader(t *testing.T) {
-	mock := &emptyReaderSeeker{}
-	elg := make_line_getter_or_die(t, mock)
-	c := elg.GetLineCount()
-	if c != 0 {
-		t.Fatalf("Empty LineGetter returns non zero line count: %v", c)
-	}
-	line, err := elg.GetLine(0)
-	if line != "" {
-		t.Fatalf("Empty LineGetter has returned a non empty line: %v", line)
-	}
-	if err == nil {
-		t.Fatalf("Empty LineGetter has not returned error.")
-	}
-}
-
-
-func TestSingleByteReader(t *testing.T) {
-	mock = bytes.NewReader([]byte("G"))
-	lg := make_line_getter_or_die(t, mock)
-	c := lg.GetLineCount()
-	if c != 1 {
-		t.Fatalf("LineGetter returned wrong number of lines: %v", c)
-	}
-	line, err := lg.GetLine(1)
-	if err != nil {
-		t.Fatalf("LineGetter has returned error: %v", err)
-	}
-	if line != "G" {
-		t.Fatalf("LineGetter has returned wrong line: \"%s\"", line)
-	}
-}
-
-
-func TestSingleLineReader(t *testing.T) {
-	text := "aaaaaaaaaaa"
-	mock = bytes.NewReader([]byte(text))
-	lg := make_line_getter_or_die(t, mock)
-	c := lg.GetLineCount()
-	if c != 1 {
-		t.Fatalf("LineGetter returned wrong number of lines: %v", c)
-	}
-	line, err := lg.GetLine(1)
-	if err != nil {
-		t.Fatalf("LineGetter has returned error: %v", err)
-	}
-	if line != text {
-		t.Fatalf("LineGetter has returned wrong line: \"%s\"", line)
-	}
-}
-
-
-func TestDoubleLineReader(t *testing.T) {
-	text := "aaaaaaaaaaa\nbbbbbbbbbb"
-	mock = bytes.NewReader([]byte(text))
-	lg := make_line_getter_or_die(t, mock)
-	c := lg.GetLineCount()
-	if c != 2 {
-		t.Fatalf("LineGetter returned wrong number of lines: %v", c)
-	}
-	line1, err1 := lg.GetLine(1)
-	if err1 != nil {
-		t.Fatalf("LineGetter has returned error: %v", err1)
-	}
-	if line1 != "aaaaaaaaaaa" {
-		t.Fatalf("LineGetter has returned wrong line: \"%s\"", line1)
-	}
-	line2, err2 := lg.GetLine(2)
-	if err2 != nil {
-		t.Fatalf("LineGetter has returned error: %v", err2)
-	}
-	if line2 != "bbbbbbbbbb" {
-		t.Fatalf("LineGetter has returned wrong line: \"%s\"", line2)
+func TestTableData(t *testing.T) {
+	var e error
+	var expct []string
+	var line_number int64
+	var input, got_line string
+	var readskr io.ReadSeeker
+	var linegetter *LineGetter
+	for _, v := range linegetter_tests {
+		input = v.inp
+		expct = v.exp
+		readskr = bytes.NewReader([]byte(input))
+		linegetter, e = NewLineGetter(readskr)
+		if e != nil {
+			t.Fatalf("TestTableData idx:%v - Creating LineGetter returned error: %v", v.idx, e)
+		}
+		if c := linegetter.GetLineCount(); c != int64(len(expct)) {
+			t.Fatalf("TestTableData idx:%v - LineGetter returned wrong number of lines: %v instead of: %v", v.idx, c, len(expct))
+		}
+		for j, w := range expct {
+			line_number = int64(j) + 1
+			got_line, e = linegetter.GetLine(line_number)
+			if e != nil {
+				t.Fatalf("TestTableData idx:%v - Got error: \"%v\" when reading line %v", v.idx, e, line_number)
+			}
+			if w != got_line {
+				t.Fatalf("TestTableData idx:%v - Got wrong line number %v: \"%v\" instead of \"%v\"", v.idx, line_number, got_line, w)
+			}
+		}
 	}
 }
 

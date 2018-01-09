@@ -48,18 +48,18 @@ func NewLineGetter(rs io.ReadSeeker) (*LineGetter, error) {
 	lg := LineGetter{ read_skr: rs }
 	err := lg.reindex()
 	if err != nil {
-		fmt.Printf("NewLineGetter: reindex returned error :%v\n", err)
+		// fmt.Printf("NewLineGetter: reindex returned error :%v\n", err)
 		return nil, err
 	}
-	fmt.Printf("NewLineGetter: number of lines:%v\n", lg.line_cnt)
-	if len(lg.line_pos) > 0 {
-		fmt.Printf("NewLineGetter: dumping indexes:\n")
-		for idx, line := range lg.line_pos {
-			fmt.Printf("    index %v, pos: %v-%v\n", idx, line.bgn, line.end)
-		}
-	} else {
-		fmt.Printf("NewLineGetter: No indexes.\n")
-	}
+	// fmt.Printf("NewLineGetter: number of lines:%v\n", lg.line_cnt)
+	// if len(lg.line_pos) > 0 {
+	// 	fmt.Printf("NewLineGetter: dumping indexes:\n")
+	// 	for idx, line := range lg.line_pos {
+	// 		fmt.Printf("    index %v, pos: %v-%v\n", idx, line.bgn, line.end)
+	// 	}
+	// } else {
+	// 	fmt.Printf("NewLineGetter: No indexes.\n")
+	// }
 	return &lg, nil
 }
 
@@ -104,11 +104,11 @@ func (lg *LineGetter) read_string(line_pos linePos) (string, error) {
 	}
 	buffer := make([]byte, final_len)
 	n, err := io.ReadFull(lg.read_skr, buffer)
-	for i:=0; i<n; i++ {
-		fmt.Printf("Character %d: %x\n", i, buffer[i])
-	}
+	// for i:=0; i<n; i++ {
+	// 	fmt.Printf("Character %d: %x\n", i, buffer[i])
+	// }
 	if err != nil {
-		fmt.Printf("read_string read error: %v\n", err)
+		// fmt.Printf("read_string read error: %v\n", err)
 		return string(buffer[:n]), io.ErrUnexpectedEOF
 	}
 	if truncated {
@@ -130,6 +130,7 @@ func (lg *LineGetter) reindex() error {
 		switch err {
 		case nil:
 			if data == '\n' {
+				// Add the previous line
 				lg.line_pos = append(lg.line_pos, current_line)
 				lg.line_cnt += 1
 				// Start next line
@@ -137,12 +138,10 @@ func (lg *LineGetter) reindex() error {
 			}
 			current_line.end += 1
 		case io.EOF:
-			// Scanned the whole thing.
-			// Add the last line only if there is at least one
-			if current_line.end > 0 {
-				lg.line_pos = append(lg.line_pos, current_line)
-				lg.line_cnt += 1
-			}
+			// Scanned the whole thing. Add last line.
+			// If the reader was empty, adds empty line.
+			lg.line_pos = append(lg.line_pos, current_line)
+			lg.line_cnt += 1
 			return nil
 		default:
 			// Unexpected error
