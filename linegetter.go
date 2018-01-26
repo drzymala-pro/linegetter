@@ -48,18 +48,8 @@ func NewLineGetter(rs io.ReadSeeker) (*LineGetter, error) {
 	lg := LineGetter{ read_skr: rs }
 	err := lg.reindex()
 	if err != nil {
-		// fmt.Printf("NewLineGetter: reindex returned error :%v\n", err)
 		return nil, err
 	}
-	// fmt.Printf("NewLineGetter: number of lines:%v\n", lg.line_cnt)
-	// if len(lg.line_pos) > 0 {
-	// 	fmt.Printf("NewLineGetter: dumping indexes:\n")
-	// 	for idx, line := range lg.line_pos {
-	// 		fmt.Printf("    index %v, pos: %v-%v\n", idx, line.bgn, line.end)
-	// 	}
-	// } else {
-	// 	fmt.Printf("NewLineGetter: No indexes.\n")
-	// }
 	return &lg, nil
 }
 
@@ -71,7 +61,7 @@ func (lg *LineGetter) GetLineCount() int64 {
 
 
 // GetLine returns the n-th line from the LineGetter.
-// Lines are separated with ASCII line feed character, 0x0A in hex.
+// Lines are separated with ASCII line feed character, '\n', 0x0A in hex.
 // The line separator is not included in the resulting lines.
 // * If the line number is out of range or zero, ErrInvalidArgument is returned.
 // * If some error happens during reading, the error is returned and
@@ -104,11 +94,7 @@ func (lg *LineGetter) read_string(line_pos linePos) (string, error) {
 	}
 	buffer := make([]byte, final_len)
 	n, err := io.ReadFull(lg.read_skr, buffer)
-	// for i:=0; i<n; i++ {
-	// 	fmt.Printf("Character %d: %x\n", i, buffer[i])
-	// }
 	if err != nil {
-		// fmt.Printf("read_string read error: %v\n", err)
 		return string(buffer[:n]), io.ErrUnexpectedEOF
 	}
 	if truncated {
